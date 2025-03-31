@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parent Registration</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        .registration-card {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .form-icon {
+            font-size: 1.2rem;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card registration-card shadow">
+                    <div class="card-header bg-primary text-white">
+                        <h2 class="h5 mb-0">
+                            <i class="bi bi-person-plus"></i> Parent Registration
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        <form id="registrationForm">
+                            <div class="mb-3">
+                                <label for="cardUID" class="form-label">
+                                    <i class="bi bi-credit-card form-icon"></i>RFID Card UID
+                                </label>
+                                <input type="text" class="form-control" id="cardUID" required
+                                    placeholder="Scan RFID card or enter manually">
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="parentName" class="form-label">
+                                        <i class="bi bi-person form-icon"></i>Parent Name
+                                    </label>
+                                    <input type="text" class="form-control" id="parentName" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="childName" class="form-label">
+                                        <i class="bi bi-person-badge form-icon"></i>Child Name
+                                    </label>
+                                    <input type="text" class="form-control" id="childName" required>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="className" class="form-label">
+                                    <i class="bi bi-book form-icon"></i>Class/Grade
+                                </label>
+                                <input type="text" class="form-control" id="className" required>
+                            </div>
+                            
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-save"></i> Register
+                                </button>
+                                <a href="/" class="btn btn-outline-secondary">
+                                    <i class="bi bi-arrow-left"></i> Back to Dashboard
+                                </a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('registrationForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Registering...';
+            
+            try {
+                const response = await fetch('/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        'cardUID': document.getElementById('cardUID').value,
+                        'parentName': document.getElementById('parentName').value,
+                        'childName': document.getElementById('childName').value,
+                        'className': document.getElementById('className').value
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    alert('Registration successful!');
+                    window.location.href = '/';
+                } else {
+                    alert(`Error: ${result.message || 'Registration failed'}`);
+                }
+            } catch (error) {
+                alert('Network error: ' + error.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="bi bi-save"></i> Register';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -4,19 +4,13 @@ import sqlite3
 import os
 import base64
 import time
-import logging
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import json
 
-# Initialize Flask app
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.secret_key = 'your-secret-key-here'  # Change in production!
-
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
 # Database configuration
 DB_PATH = os.path.join(os.path.dirname(__file__), 'meetings.db')
@@ -32,7 +26,7 @@ def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         
-        # Create tables if they don't exist
+        # Create meetings table with all required columns
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS meetings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,7 +80,6 @@ with app.app_context():
 def get_teacher_for_token(token):
     """Get teacher assigned to a token"""
     with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute('''
             SELECT teacher FROM meetings 
@@ -95,50 +88,18 @@ def get_teacher_for_token(token):
             LIMIT 1
         ''', (token,))
         result = cursor.fetchone()
-        return result['teacher'] if result else "Unknown"
+        return result[0] if result else "Unknown"
 
-def assign_teacher(token, card_uid):
-    """Assign parent to their next available teacher"""
+def assign_teacher(token):
+    """Round-robin teacher assignment with validation"""
     with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
-        # Check if token already assigned
         cursor.execute('SELECT 1 FROM assigned_tokens WHERE token = ?', (token,))
         if cursor.fetchone():
             raise ValueError(f"Token {token} already assigned")
-        
-        # Get all teachers this parent hasn't met yet
-        cursor.execute('''
-            SELECT teacher FROM meetings 
-            WHERE card_uid = ? AND completed = 1
-        ''', (card_uid,))
-        met_teachers = {row['teacher'] for row in cursor.fetchall()}
-        
-        all_teachers = [f"Teacher {i}" for i in TEACHER_IDS]
-        remaining_teachers = [t for t in all_teachers if t not in met_teachers]
-        
-        if not remaining_teachers:
-            raise ValueError("Parent has met all teachers")
-            
-        # Get current teacher workloads
-        cursor.execute('''
-            SELECT teacher, COUNT(*) as workload 
-            FROM meetings 
-            WHERE completed = 0
-            GROUP BY teacher
-        ''')
-        teacher_workloads = dict(cursor.fetchall())
-        
-        # Find available teachers (those with no current meetings)
-        available_teachers = [t for t in remaining_teachers if teacher_workloads.get(t, 0) == 0]
-        
-        if available_teachers:
-            # Assign to first available teacher
-            return available_teachers[0]
-        else:
-            # If no teachers available, assign to teacher with lightest workload
-            return min(remaining_teachers, key=lambda t: teacher_workloads.get(t, 0))
+    
+    teachers = [f"Teacher {i}" for i in TEACHER_IDS]
+    return teachers[(int(token) - 1) % len(teachers)]
 
 def log_auth_action(teacher_id, action):
     """Record authentication events"""
@@ -159,17 +120,30 @@ def teacher_auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth = request.authorization
-        if not auth:
-            if 'teacher_credentials' in session:
-                try:
-                    creds = base64.b64decode(session['teacher_credentials']).decode('utf-8')
-                    username, password = creds.split(':', 1)
-                    auth = type('', (), {'username': username, 'password': password})()
-                except:
-                    pass
+        session_valid = False
+        
+        if not auth and 'teacher_credentials' in session:
+            try:
+                creds = base64.b64decode(session['teacher_credentials']).decode('utf-8')
+                username, password = creds.split(':', 1)
+                auth = type('', (), {'username': username, 'password': password})()
+                session_valid = True
+            except:
+                session.pop('teacher_credentials', None)
         
         if not auth or not check_teacher_credentials(auth.username, auth.password):
             return authenticate()
+        
+        # Check for session timeout (30 minutes)
+        if session_valid and 'last_activity' in session:
+            last_activity = session['last_activity']
+            if (datetime.now() - last_activity).total_seconds() > 1800:  # 30 minutes
+                session.pop('teacher_credentials', None)
+                return authenticate()
+        
+        if session_valid:
+            session['last_activity'] = datetime.now()
+        
         return f(*args, **kwargs)
     return decorated
 
@@ -194,7 +168,6 @@ def validate_teacher_id(teacher_id):
     return teacher_id.isdigit() and int(teacher_id) in TEACHER_IDS
 
 # --- Routes --- #
-
 @app.route('/')
 def dashboard():
     """Main dashboard view"""
@@ -217,28 +190,18 @@ def teacher_login():
             f"teacher{teacher_id}:{password}".encode()
         ).decode()
         
-        return redirect(url_for('teacher_dashboard', id=teacher_id))
+        return f'''
+            <html>
+            <head>
+                <meta http-equiv="refresh" content="0; url=/teacher?id={teacher_id}" />
+            </head>
+            <body>
+                Redirecting to teacher dashboard...
+            </body>
+            </html>
+        '''
     
     return render_template('teacher_login.html')
-
-@app.route('/teacher/logout')
-@teacher_auth_required
-def teacher_logout():
-    """Log out the current teacher"""
-    auth = request.authorization
-    if auth and auth.username.startswith('teacher'):
-        teacher_id = auth.username.replace('teacher', '')
-        log_auth_action(teacher_id, "logout")
-    
-    # Clear session credentials
-    if 'teacher_credentials' in session:
-        session.pop('teacher_credentials')
-    
-    # Send response that clears HTTP Basic Auth
-    response = redirect(url_for('teacher_login'))
-    response.headers['WWW-Authenticate'] = 'Basic realm="Teacher Dashboard"'
-    response.status_code = 401
-    return response
 
 @app.route('/teacher')
 @teacher_auth_required
@@ -310,7 +273,6 @@ def api():
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Check existing assignment
             cursor.execute('SELECT token FROM assigned_tokens WHERE card_uid = ?', (card_uid,))
             existing = cursor.fetchone()
             
@@ -323,7 +285,6 @@ def api():
                     "teacher": get_teacher_for_token(existing['token'])
                 })
             
-            # Validate token
             cursor.execute('SELECT 1 FROM assigned_tokens WHERE token = ?', (token,))
             if cursor.fetchone():
                 return jsonify({
@@ -331,22 +292,18 @@ def api():
                     "message": f"Token {token} already in use"
                 }), 400
             
-            # Assign teacher using fair system
-            teacher = assign_teacher(token, card_uid)
+            teacher = assign_teacher(token)
             
-            # Record assignment
             cursor.execute('''
                 INSERT INTO assigned_tokens (card_uid, token)
                 VALUES (?, ?)
             ''', (card_uid, token))
             
-            # Log meeting
             cursor.execute('''
                 INSERT INTO meetings (card_uid, token, teacher, completed)
                 VALUES (?, ?, ?, 0)
             ''', (card_uid, token, teacher))
             
-            # Get parent info if available
             cursor.execute('''
                 SELECT parent_name, child_name FROM parent_info
                 WHERE card_uid = ?
@@ -440,6 +397,13 @@ def get_current_meeting():
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
+            # Verify schema
+            cursor.execute("PRAGMA table_info(meetings)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if 'completed' not in columns:
+                cursor.execute('ALTER TABLE meetings ADD COLUMN completed INTEGER DEFAULT 0')
+                conn.commit()
+            
             cursor.execute('''
                 SELECT m.*, p.parent_name, p.child_name
                 FROM meetings m
@@ -458,11 +422,10 @@ def get_current_meeting():
     except sqlite3.Error as e:
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
 
-
 @app.route('/api/complete_meeting', methods=['POST'])
 @teacher_auth_required
 def complete_meeting():
-    """Mark meeting as complete and assign parent to next teacher"""
+    """Mark meeting as complete"""
     if not request.json:
         abort(400, "JSON data required")
     
@@ -474,45 +437,28 @@ def complete_meeting():
     
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Get current meeting details
-            cursor.execute('''
-                SELECT m.card_uid, m.token FROM meetings m
-                WHERE m.id = ?
-            ''', (meeting_id,))
-            meeting = cursor.fetchone()
-            
-            if not meeting:
-                abort(404, "Meeting not found")
-            
-            # Mark current meeting complete
             cursor.execute('UPDATE meetings SET completed = 1 WHERE id = ?', (meeting_id,))
             
-            # Assign parent to next teacher
-            try:
-                next_teacher = assign_teacher(meeting['token'], meeting['card_uid'])
-                cursor.execute('''
-                    INSERT INTO meetings (card_uid, token, teacher, completed)
-                    VALUES (?, ?, ?, 0)
-                ''', (meeting['card_uid'], meeting['token'], next_teacher))
-            except ValueError as e:
-                if "has met all teachers" in str(e):
-                    # Parent has completed all meetings
-                    cursor.execute('''
-                        DELETE FROM assigned_tokens
-                        WHERE token = ?
-                    ''', (meeting['token'],))
-                else:
-                    raise
+            cursor.execute('SELECT card_uid, token FROM meetings WHERE id = ?', (meeting_id,))
+            meeting = cursor.fetchone()
+            card_uid, token = meeting[0], meeting[1]
+            
+            next_teacher_num = (int(teacher_id) % len(TEACHER_IDS)) + 1
+            next_teacher = f"Teacher {next_teacher_num}"
+            
+            cursor.execute('''
+                INSERT INTO meetings (card_uid, token, teacher, completed)
+                VALUES (?, ?, ?, 0)
+            ''', (card_uid, token, next_teacher))
             
             conn.commit()
             
+        log_auth_action(teacher_id, "completed_meeting")
         return jsonify({
             "status": "success",
-            "message": "Meeting completed",
-            "next_teacher": next_teacher if 'next_teacher' in locals() else None
+            "next_teacher": next_teacher
         })
         
     except Exception as e:
@@ -583,8 +529,25 @@ def add_missing_columns():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/teacher/logout')
+@teacher_auth_required
+def teacher_logout():
+    """Log out the current teacher"""
+    auth = request.authorization
+    if auth and auth.username.startswith('teacher'):
+        teacher_id = auth.username.replace('teacher', '')
+        log_auth_action(teacher_id, "logout")
+    
+    # Clear session credentials
+    if 'teacher_credentials' in session:
+        session.pop('teacher_credentials')
+    
+    # Send response that clears HTTP Basic Auth
+    response = redirect(url_for('teacher_login'))
+    response.headers['WWW-Authenticate'] = 'Basic realm="Teacher Dashboard"'
+    response.status_code = 401
+    return response
 
-# ... [Keep all your other existing routes unchanged] ...
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

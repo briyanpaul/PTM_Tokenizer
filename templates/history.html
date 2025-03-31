@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting History</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="h3">
+                <i class="bi bi-clock-history text-primary"></i> Meeting History
+            </h1>
+            <div>
+                <a href="/" class="btn btn-outline-primary me-2">
+                    <i class="bi bi-house"></i> Dashboard
+                </a>
+                <a href="/register" class="btn btn-primary">
+                    <i class="bi bi-person-plus"></i> Register Parent
+                </a>
+            </div>
+        </div>
+
+        <div class="card shadow">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Token</th>
+                                <th>Parent</th>
+                                <th>Child</th>
+                                <th>Teacher</th>
+                                <th>Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for meeting in meetings %}
+                            <tr>
+                                <td><span class="badge bg-primary">{{ meeting.token }}</span></td>
+                                <td>{{ meeting.parent_name or 'N/A' }}</td>
+                                <td>{{ meeting.child_name or 'N/A' }}</td>
+                                <td>{{ meeting.teacher }}</td>
+                                <td>{{ meeting.timestamp }}</td>
+                                <td>
+                                    {% if meeting.is_active %}
+                                    <span class="badge bg-success">Active</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Completed</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
