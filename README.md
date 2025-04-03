@@ -50,7 +50,7 @@ Endpoint	Method	Description \
 /updates	GET	SSE stream for real-time meeting alerts \
 /api/complete_meeting	POST	Mark meeting as complete \
 **********************************************************************************
-Testing 🧪
+Testing 🧪 \
 1.Simulate an RFID scan:
 curl "http://localhost:5000/api?cardUID=PARENT_123&token=456"
 
@@ -61,7 +61,7 @@ curl -X POST http://localhost:5000/api/complete_meeting
   -d '{"meeting_id":1, "confirmation_token":"YOUR_TOKEN"}' 
   --user teacher1:pass1123
 **********************************************************************************
-Tech Stack 💻
+Tech Stack 💻 \
 Backend: Python + Flask + SQLite 
 
 Frontend: HTML/JS (SSE for real-time updates) 
