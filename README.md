@@ -1,3 +1,5 @@
+DO NOT RUN THIS IN A PRODUCTION ENVIRONMENT!
+
 Teacher-Parent Meeting Scheduler 🏫👨‍👩‍👧‍👦
 
 A Flask-based system for fair teacher-parent meeting assignments with real-time updates.
@@ -21,32 +23,32 @@ Parent A → Teacher 1 → Teacher 2 → Teacher 3 (Cycle repeats)
 Parent B → Teacher 2 → Teacher 3 → Teacher 1
 
 **********************************************************************************
-Installation 🛠️
-Clone the repo: 
-git clone https://github.com/yourusername/teacher-parent-scheduler.git
-cd teacher-parent-scheduler
+Installation 🛠️ \
+1.Clone the repo: \
+git clone https://github.com/yourusername/teacher-parent-scheduler.git \
+cd teacher-parent-scheduler 
 
 
-Set up Python environment:
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate     # Windows
+2.Set up Python environment: \
+python -m venv venv \
+source venv/bin/activate  # Linux/Mac \
+venv\Scripts\activate     # Windows \
 pip install -r requirements.txt
 
 
-Initialize the database:
+3.Initialize the database: \
 python init_db.py
 
 
-Run the server:
+4.Run the server:
 flask run --host=0.0.0.0
 
 **********************************************************************************
 API Endpoints 🌐
-Endpoint	Method	Description
-/api	GET	Assign teacher to parent (RFID scan)
-/updates	GET	SSE stream for real-time meeting alerts
-/api/complete_meeting	POST	Mark meeting as complete
+Endpoint	Method	Description \
+/api	GET	Assign teacher to parent (RFID scan) \
+/updates	GET	SSE stream for real-time meeting alerts \
+/api/complete_meeting	POST	Mark meeting as complete \
 **********************************************************************************
 Testing 🧪
 1.Simulate an RFID scan:
@@ -60,8 +62,8 @@ curl -X POST http://localhost:5000/api/complete_meeting \
   --user teacher1:pass1123
 **********************************************************************************
 Tech Stack 💻
-Backend: Python + Flask + SQLite
+Backend: Python + Flask + SQLite \
 
-Frontend: HTML/JS (SSE for real-time updates)
+Frontend: HTML/JS (SSE for real-time updates) \
 
-Authentication: HTTP Basic Auth for teachers
+Authentication: HTTP Basic Auth for teachers \
