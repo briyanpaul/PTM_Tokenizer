@@ -4,7 +4,7 @@ Teacher-Parent Meeting Scheduler 🏫👨‍👩‍👧‍👦
 
 A Flask-based system for fair teacher-parent meeting assignments with real-time updates.
 
-Features ✨ \
+Features ✨ 
 - **Fair Teacher Assignment**: Round-robin scheduling ensures parents meet all teachers.
 - **Real-Time Updates**: SSE (Server-Sent Events) for live meeting notifications.
 - **Priority Queue**: First-come-first-served when all teachers are busy.
