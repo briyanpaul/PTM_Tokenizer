@@ -55,15 +55,15 @@ Testing 🧪
 curl "http://localhost:5000/api?cardUID=PARENT_123&token=456"
 
 
-2.Complete a meeting (replace YOUR_TOKEN):
-curl -X POST http://localhost:5000/api/complete_meeting \
-  -H "Content-Type: application/json" \
-  -d '{"meeting_id":1, "confirmation_token":"YOUR_TOKEN"}' \
+2.Complete a meeting (replace YOUR_TOKEN): \
+curl -X POST http://localhost:5000/api/complete_meeting 
+  -H "Content-Type: application/json" 
+  -d '{"meeting_id":1, "confirmation_token":"YOUR_TOKEN"}' 
   --user teacher1:pass1123
 **********************************************************************************
 Tech Stack 💻
-Backend: Python + Flask + SQLite \
+Backend: Python + Flask + SQLite 
 
-Frontend: HTML/JS (SSE for real-time updates) \
+Frontend: HTML/JS (SSE for real-time updates) 
 
-Authentication: HTTP Basic Auth for teachers \
+Authentication: HTTP Basic Auth for teachers 
