@@ -90,16 +90,54 @@ def get_teacher_for_token(token):
         result = cursor.fetchone()
         return result[0] if result else "Unknown"
 
-def assign_teacher(token):
-    """Round-robin teacher assignment with validation"""
+def assign_teacher(token, card_uid):
+    """Assign teachers in round-robin fashion, tracking which teachers each parent has met"""
     with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        
+        # Check if token already assigned
         cursor.execute('SELECT 1 FROM assigned_tokens WHERE token = ?', (token,))
         if cursor.fetchone():
             raise ValueError(f"Token {token} already assigned")
-    
-    teachers = [f"Teacher {i}" for i in TEACHER_IDS]
-    return teachers[(int(token) - 1) % len(teachers)]
+        
+        # Get all teachers
+        all_teachers = [f"Teacher {i}" for i in TEACHER_IDS]
+        
+        # Get teachers this parent has already met
+        cursor.execute('''
+            SELECT DISTINCT teacher FROM meetings 
+            WHERE card_uid = ? AND completed = 1
+        ''', (card_uid,))
+        met_teachers = {row['teacher'] for row in cursor.fetchall()}
+        
+        # Get available teachers (not in current meetings)
+        cursor.execute('''
+            SELECT teacher FROM meetings 
+            WHERE completed = 0
+            GROUP BY teacher
+        ''')
+        busy_teachers = {row['teacher'] for row in cursor.fetchall()}
+        
+        # Find teachers parent hasn't met that are available
+        available_teachers = [
+            t for t in all_teachers 
+            if t not in met_teachers and t not in busy_teachers
+        ]
+        
+        if available_teachers:
+            # Assign to first available teacher parent hasn't met
+            return available_teachers[0]
+        else:
+            # If no available teachers, assign to teacher with lightest workload
+            cursor.execute('''
+                SELECT teacher, COUNT(*) as workload 
+                FROM meetings 
+                WHERE completed = 0
+                GROUP BY teacher
+            ''')
+            workloads = {row['teacher']: row['workload'] for row in cursor.fetchall()}
+            return min(all_teachers, key=lambda t: workloads.get(t, 0)) 
 
 def log_auth_action(teacher_id, action):
     """Record authentication events"""
@@ -261,8 +299,20 @@ def register_parent():
 
 @app.route('/api', methods=['GET'])
 def api():
-    """RFID API endpoint"""
     try:
+        # 1. Get the token from the request
+        token = request.args.get('token')
+        
+        # 2. Validate the token format
+        if not token or not token.isdigit():  # Check if token is missing or non-numeric
+            return jsonify({
+                "status": "error",
+                "message": "Token must be a number (e.g., '123')"
+            }), 400  # HTTP 400 = Bad Request
+        
+        # 3. Convert token to integer (to ensure it's stored correctly)
+        token = int(token)
+
         card_uid = request.args.get('cardUID')
         token = request.args.get('token')
         
@@ -270,9 +320,10 @@ def api():
             return jsonify({"status": "error", "message": "Missing parameters"}), 400
             
         with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
+            conn.row_factory = sqlite3.Row  # Ensure dictionary-style access
             cursor = conn.cursor()
             
+            # Check existing assignment
             cursor.execute('SELECT token FROM assigned_tokens WHERE card_uid = ?', (card_uid,))
             existing = cursor.fetchone()
             
@@ -285,50 +336,53 @@ def api():
                     "teacher": get_teacher_for_token(existing['token'])
                 })
             
+            # Validate token is numeric
+            if not token.isdigit():
+                return jsonify({
+                    "status": "error",
+                    "message": "Token must be numeric"
+                }), 400
+                
+            token = int(token)
+            
+            # Check if token already assigned
             cursor.execute('SELECT 1 FROM assigned_tokens WHERE token = ?', (token,))
             if cursor.fetchone():
                 return jsonify({
                     "status": "error",
                     "message": f"Token {token} already in use"
                 }), 400
+	            
+            # Assign teacher
+            teacher = assign_teacher(token, card_uid)
             
-            teacher = assign_teacher(token)
-            
+            # Record assignment
             cursor.execute('''
-                INSERT INTO assigned_tokens (card_uid, token)
+                INSERT OR REPLACE INTO assigned_tokens (card_uid, token)
                 VALUES (?, ?)
             ''', (card_uid, token))
             
+            # Log meeting
             cursor.execute('''
                 INSERT INTO meetings (card_uid, token, teacher, completed)
                 VALUES (?, ?, ?, 0)
             ''', (card_uid, token, teacher))
             
-            cursor.execute('''
-                SELECT parent_name, child_name FROM parent_info
-                WHERE card_uid = ?
-            ''', (card_uid,))
-            parent_info = cursor.fetchone()
-            
             conn.commit()
         
-        response_data = {
+        return jsonify({
             "status": "success",
             "token": token,
             "teacher": teacher,
             "card_uid": card_uid
-        }
-        
-        if parent_info:
-            response_data.update({
-                "parent_name": parent_info[0],
-                "child_name": parent_info[1]
-            })
-        
-        return jsonify(response_data)
+        })
         
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "trace": traceback.format_exc() if app.debug else None
+        }), 500
 
 @app.route('/api/parent_info', methods=['GET'])
 def get_parent_info():
@@ -355,29 +409,45 @@ def get_parent_info():
 def updates():
     """Server-Sent Events endpoint for real-time updates"""
     def event_stream():
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            last_id = 0
-            
-            while True:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT m.*, p.parent_name, p.child_name
-                    FROM meetings m
-                    LEFT JOIN parent_info p ON m.card_uid = p.card_uid
-                    WHERE m.id > ? AND m.completed = 0
-                    ORDER BY m.timestamp DESC
-                    LIMIT 1
-                ''', (last_id,))
-                
-                meeting = cursor.fetchone()
-                if meeting:
-                    last_id = meeting['id']
-                    yield f"data: {json.dumps(dict(meeting))}\n\n"
+        last_id = 0
+        while True:
+            try:
+                with sqlite3.connect(DB_PATH) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+                    
+                    # Only send meetings with valid tokens
+                    cursor.execute('''
+                        SELECT m.id, m.card_uid, m.token, m.teacher, 
+                               p.parent_name, p.child_name
+                        FROM meetings m
+                        LEFT JOIN parent_info p ON m.card_uid = p.card_uid
+                        WHERE m.id > ? AND m.completed = 0 AND m.token IS NOT NULL
+                        ORDER BY m.timestamp DESC
+                        LIMIT 1
+                    ''', (last_id,))
+                    
+                    meeting = cursor.fetchone()
+                    if meeting:
+                        last_id = meeting['id']
+                        if meeting['token']:  # Only send if token exists
+                            yield f"data: {json.dumps(dict(meeting))}\n\n"
+                    # Send heartbeat every 15 seconds
+                    yield ":heartbeat\n\n"
                 
                 time.sleep(1)
+            except Exception as e:
+                logger.error(f"SSE error: {str(e)}")
+                time.sleep(5)
     
-    return Response(event_stream(), mimetype="text/event-stream")
+    return Response(
+        event_stream(),
+        mimetype="text/event-stream",
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        }
+    )
 
 @app.route('/api/current_meeting', methods=['GET'])
 @teacher_auth_required
@@ -425,7 +495,7 @@ def get_current_meeting():
 @app.route('/api/complete_meeting', methods=['POST'])
 @teacher_auth_required
 def complete_meeting():
-    """Mark meeting as complete"""
+    """Mark meeting as complete and assign parent to next teacher"""
     if not request.json:
         abort(400, "JSON data required")
     
@@ -437,31 +507,71 @@ def complete_meeting():
     
     try:
         with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
+            # Get current meeting details
+            cursor.execute('''
+                SELECT m.* FROM meetings m
+                WHERE m.id = ?
+            ''', (meeting_id,))
+            meeting = cursor.fetchone()
+            
+            if not meeting:
+                abort(404, "Meeting not found")
+            if meeting['teacher'] != f"Teacher {teacher_id}":
+                abort(403, "You can only complete your own meetings")
+            
+            # Mark meeting complete
             cursor.execute('UPDATE meetings SET completed = 1 WHERE id = ?', (meeting_id,))
             
-            cursor.execute('SELECT card_uid, token FROM meetings WHERE id = ?', (meeting_id,))
-            meeting = cursor.fetchone()
-            card_uid, token = meeting[0], meeting[1]
+            # Find next teacher for this parent
+            card_uid = meeting['card_uid']
+            all_teachers = [f"Teacher {i}" for i in TEACHER_IDS]
             
-            next_teacher_num = (int(teacher_id) % len(TEACHER_IDS)) + 1
-            next_teacher = f"Teacher {next_teacher_num}"
-            
+            # Get teachers parent has already met
             cursor.execute('''
-                INSERT INTO meetings (card_uid, token, teacher, completed)
-                VALUES (?, ?, ?, 0)
-            ''', (card_uid, token, next_teacher))
+                SELECT DISTINCT teacher FROM meetings 
+                WHERE card_uid = ? AND completed = 1
+            ''', (card_uid,))
+            met_teachers = {row['teacher'] for row in cursor.fetchall()}
+            
+            # Get available teachers (not in current meetings)
+            cursor.execute('''
+                SELECT teacher FROM meetings 
+                WHERE completed = 0
+                GROUP BY teacher
+            ''')
+            busy_teachers = {row['teacher'] for row in cursor.fetchall()}
+            
+            # Find next available teacher parent hasn't met
+            next_teacher = None
+            for teacher in all_teachers:
+                if teacher not in met_teachers and teacher not in busy_teachers:
+                    next_teacher = teacher
+                    break
+            
+            if next_teacher:
+                # Create new meeting with next teacher
+                cursor.execute('''
+                    INSERT INTO meetings (card_uid, token, teacher, completed)
+                    VALUES (?, ?, ?, 0)
+                ''', (card_uid, meeting['token'], next_teacher))
+            else:
+                # No available teachers - parent waits in queue
+                # The queue system will handle assignment when teacher becomes free
+                pass
             
             conn.commit()
             
-        log_auth_action(teacher_id, "completed_meeting")
-        return jsonify({
-            "status": "success",
-            "next_teacher": next_teacher
-        })
-        
+            return jsonify({
+                "status": "success",
+                "message": "Meeting completed",
+                "next_teacher": next_teacher if next_teacher else "Waiting for available teacher"
+            })
+            
     except Exception as e:
+        conn.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/history')
