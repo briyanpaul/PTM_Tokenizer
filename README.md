@@ -4,14 +4,14 @@ Teacher-Parent Meeting Scheduler 🏫👨‍👩‍👧‍👦
 
 A Flask-based system for fair teacher-parent meeting assignments with real-time updates.
 
-Features ✨
+Features ✨ \
 - **Fair Teacher Assignment**: Round-robin scheduling ensures parents meet all teachers.
 - **Real-Time Updates**: SSE (Server-Sent Events) for live meeting notifications.
 - **Priority Queue**: First-come-first-served when all teachers are busy.
 - **Workload Balancing**: Least-busy teacher gets new assignments.
 - **RFID Integration**: Scan cards to trigger meetings.
 
-How It Works ⚙️
+How It Works ⚙️ \
 Token Assignment Algorithm:
 1. Parents scan RFID cards with unique tokens.
 2. System assigns them to:
@@ -44,7 +44,7 @@ python init_db.py
 flask run --host=0.0.0.0
 
 **********************************************************************************
-API Endpoints 🌐
+API Endpoints 🌐 \
 Endpoint	Method	Description \
 /api	GET	Assign teacher to parent (RFID scan) \
 /updates	GET	SSE stream for real-time meeting alerts \
