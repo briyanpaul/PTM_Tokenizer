@@ -48,7 +48,7 @@ API Endpoints 🌐 \
 Endpoint	Method	Description \
 /api	GET	Assign teacher to parent (RFID scan) \
 /updates	GET	SSE stream for real-time meeting alerts \
-/api/complete_meeting	POST	Mark meeting as complete \
+/api/complete_meeting	POST	Mark meeting as complete
 **********************************************************************************
 Testing 🧪 \
 1.Simulate an RFID scan:
