@@ -25,7 +25,7 @@ Parent B → Teacher 2 → Teacher 3 → Teacher 1
 **********************************************************************************
 Installation 🛠️ \
 1.Clone the repo: \
-git clone https://github.com/briyanpaul/teacher-parent-scheduler.git \
+git clone https://github.com/briyanpaul/PTM_Tokenizer.git \
 cd teacher-parent-scheduler 
 
 
