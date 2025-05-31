@@ -581,10 +581,9 @@ def history():
     
     query = '''
         SELECT m.*, p.parent_name, p.child_name,
-               CASE WHEN a.card_uid IS NOT NULL THEN 1 ELSE 0 END as is_active
+               CASE WHEN m.completed = 0 THEN 1 ELSE 0 END as is_active
         FROM meetings m
         LEFT JOIN parent_info p ON m.card_uid = p.card_uid
-        LEFT JOIN assigned_tokens a ON m.card_uid = a.card_uid
     '''
     
     if teacher_id:
