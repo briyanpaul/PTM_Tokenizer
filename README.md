@@ -2,7 +2,7 @@ DO NOT RUN THIS IN A PRODUCTION ENVIRONMENT!
 
 Teacher-Parent Meeting Scheduler 🏫👨‍👩‍👧‍👦
 
-A Flask-based system for fair teacher-parent meeting assignments with real-time updates.
+A Flask-based system paired up with ESP32 for fair teacher-parent meeting assignments with real-time updates.
 
 Features ✨ 
 - **Fair Teacher Assignment**: Round-robin scheduling ensures parents meet all teachers.
